@@ -2,11 +2,16 @@
 from flask import Flask, jsonify, request
 from skyfield.api import load, wgs84
 from datetime import datetime, timezone, timedelta
+from flask_cors import CORS
 
 # --- 1. Setup and Configuration ---
 
 # Create an instance of the Flask application
 app = Flask(__name__)
+# This enables CORS and specifies that only requests from your website are allowed.
+# Replace the placeholder URL with the actual URL of your tracker website.
+CORS(app, origins=["https://isstracker.tiiny.site"])
+
 
 # This sets up a loader that will download necessary data files from Skyfield
 # and cache them in a new 'skyfield_data' folder in your project.
