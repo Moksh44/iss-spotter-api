@@ -10,7 +10,11 @@ from flask_cors import CORS
 app = Flask(__name__)
 # This enables CORS and specifies that only requests from your website are allowed.
 # Replace the placeholder URL with the actual URL of your tracker website.
-CORS(app, origins=["https://isstracker.tiiny.site"])
+app = Flask(__name__)
+CORS(app, origins=[
+    "http://127.0.0.1:5500",
+    "https://your-tracker-site.tiiny.site"  # (optional, for when you go live)
+])
 
 
 # This sets up a loader that will download necessary data files from Skyfield
