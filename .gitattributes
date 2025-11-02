@@ -1,0 +1,2 @@
+Shapefiles/**/*.shp filter=lfs diff=lfs merge=lfs -text
+Shapefiles/**/*.dbf filter=lfs diff=lfs merge=lfs -text
