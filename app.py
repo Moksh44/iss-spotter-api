@@ -8,7 +8,8 @@ import traceback
 import geopandas as gpd
 from shapely.geometry import Point
 import pytz
-import os
+import math
+import o
 
 # --- Get the absolute path of the directory where app.py is located ---
 # This is your "API Folder"
@@ -102,6 +103,25 @@ def is_pass_visible(iss, observer_location, start_time, end_time):
         
         current_time = ts.utc(current_time.utc_datetime() + timedelta(seconds=30))
     return False
+
+def get_timezone_name(lat, lon):
+    """
+    Finds the Timezone ID (e.g., 'Asia/Seoul') for a specific Lat/Lon
+    using the loaded TZ_DATA shapefile.
+    """
+    if TZ_DATA is None:
+        return "UTC" # Fallback if shapefiles failed
+    
+    try:
+        p = Point(lon, lat)
+        # Check which timezone polygon contains this point
+        matches = TZ_DATA[TZ_DATA.geometry.contains(p)]
+        if not matches.empty:
+            return matches.iloc[0].get('tzid')
+    except Exception as e:
+        print(f"Timezone lookup error: {e}")
+    
+    return "UTC" # Default fallback
 
 # --- 3. API Routes ---
 
@@ -246,6 +266,7 @@ def get_iss_passes():
         longitude = float(lon)
     except ValueError:
         return jsonify({"error": "Invalid latitude or longitude format."}), 400
+    target_tz = get_timezone_name(latitude, longitude)
 
     try:
         iss = get_latest_iss()
@@ -288,7 +309,8 @@ def get_iss_passes():
                         'max_azimuth': round(max_az.degrees, 2),
                         'set_time_utc': set_time.utc_datetime().isoformat(),
                         'set_azimuth': round(set_az.degrees, 2),
-                        'duration_minutes': round(duration, 1)
+                        'duration_minutes': round(duration, 1),
+                        'timezone_id': target_tz
                     })
                 
                 rise_time, max_time, set_time = None, None, None
@@ -299,6 +321,58 @@ def get_iss_passes():
         print(f"An error occurred processing /api/passes:")
         print(traceback.format_exc())
         return jsonify({"error": "An internal server error occurred."}), 500
+    
+@app.route("/api/telemetry")
+def get_telemetry():
+    """
+    Calculates real-time ISS telemetry (Position, Speed, Altitude, etc.)
+    Replaces the 'wheretheiss.at' API.
+    """
+    try:
+        iss = get_latest_iss()
+        t = ts.now()
+        
+        # 1. Calculate Position (Geocentric)
+        geocentric = iss.at(t)
+        subpoint = geocentric.subpoint()
+        
+        latitude = subpoint.latitude.degrees
+        longitude = subpoint.longitude.degrees
+        altitude_km = subpoint.elevation.km
+        
+        # 2. Calculate Velocity (Speed)
+        # Skyfield gives velocity in km/s as a vector (x, y, z)
+        velocity_vector = geocentric.velocity.km_per_s
+        # Speed = sqrt(x^2 + y^2 + z^2)
+        speed_km_s = math.sqrt(sum(v**2 for v in velocity_vector))
+        speed_km_h = speed_km_s * 3600
+        
+        # 3. Calculate Visibility (Daylight vs Eclipsed)
+        is_sunlit = iss.at(t).is_sunlit(eph)
+        visibility_status = "daylight" if is_sunlit else "eclipsed"
+        
+        # 4. Calculate Footprint (Horizon)
+        earth_radius_km = 6371.0
+        # Horizon angle (theta)
+        theta = math.acos(earth_radius_km / (earth_radius_km + altitude_km))
+        # Arc distance (radius of footprint on surface)
+        footprint_radius_km = theta * earth_radius_km
+        # Diameter (to match old API format approx)
+        footprint_diameter_km = footprint_radius_km * 2
+        
+        return jsonify({
+            "latitude": latitude,
+            "longitude": longitude,
+            "altitude": altitude_km,
+            "velocity": speed_km_h,
+            "visibility": visibility_status,
+            "footprint": footprint_diameter_km,
+            "timestamp": t.utc_datetime().timestamp()
+        })
+
+    except Exception as e:
+        print(f"Telemetry Error: {e}")
+        return jsonify({"error": "Could not calculate telemetry"}), 500        
 
 # --- 4. Run the Application ---
 
