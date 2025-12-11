@@ -9,6 +9,7 @@ import geopandas as gpd
 from shapely.geometry import Point
 import pytz
 import math
+import io
 import os
 
 # --- Get the absolute path of the directory where app.py is located ---
@@ -67,25 +68,40 @@ LAST_TLE_FETCH = None
 # 1. DEFINE THE URL FIRST (Moved Up)
 stations_url = 'https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle'
 
-# 2. DEFINE THE LOADER FUNCTION
+# --- EMERGENCY DATA (Paste the 3 lines you copied inside the quotes) ---
+FALLBACK_TLE_DATA = """ISS (ZARYA)             
+1 25544U 98067A   25344.92875130  .00014434  00000+0  26509-3 0  9993
+2 25544  51.6309 151.4463 0003351 232.8214 127.2469 15.49489378542576"""
+# (Make sure you replace the numbers above with the fresh ones you copied!)
+
 def load_initial_data():
-    """Loads ISS data at startup so the first user doesn't wait."""
+    """Loads ISS data. Uses fallback if Celestrak is down/blocking."""
     global ISS_SAT, LAST_TLE_FETCH
-    print("📥 Loading ISS Data at startup...")
+    print("📥 Loading ISS Data...")
+    
+    # 1. Try to download from Web first
     try:
-        # Now this works because stations_url is already defined!
         stations = load.tle_file(stations_url, reload=True)
         ISS_SAT = stations[0]
         LAST_TLE_FETCH = datetime.now()
-        print("✅ ISS Data loaded successfully!")
+        print("✅ ISS Data loaded from Web!")
+        return
     except Exception as e:
-        print(f"⚠️ Error loading ISS data at startup: {e}")
+        print(f"⚠️ Web Download Failed (likely blocked): {e}")
+        print("🪂 Using Emergency Parachute...")
 
-# 3. CALL THE FUNCTION LAST
+    # 2. Use the Parachute (Hardcoded text)
+    try:
+        virtual_file = io.StringIO(FALLBACK_TLE_DATA)
+        stations = load.tle_file(virtual_file)
+        ISS_SAT = stations[0]
+        LAST_TLE_FETCH = datetime.now()
+        print("✅ ISS Data loaded from Fallback!")
+    except Exception as e:
+        print(f"❌ Critical Error: {e}")
+
+# Load immediately
 load_initial_data()
-
-# Celestrak TLE URL
-stations_url = 'https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle'
 
 # Geocoder setup (ONLY for /api/passes)
 geolocator = Nominatim(user_agent="iss_tracker_api_v2")
@@ -96,7 +112,6 @@ def get_latest_iss():
     """
     SMART FUNCTION: Returns the ISS object from memory.
     Refreshes data from Celestrak ONLY if data is older than 60 minutes.
-    This prevents the freezing and memory crashes.
     """
     global ISS_SAT, LAST_TLE_FETCH
     
