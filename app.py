@@ -60,15 +60,20 @@ except Exception as e:
     STATE_DATA = None
     TZ_DATA = None
 
-    # --- GLOBAL VARIABLES FOR TLE CACHING (THE FIX) ---
+# --- GLOBAL VARIABLES FOR TLE CACHING ---
 ISS_SAT = None
 LAST_TLE_FETCH = None
 
+# 1. DEFINE THE URL FIRST (Moved Up)
+stations_url = 'https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle'
+
+# 2. DEFINE THE LOADER FUNCTION
 def load_initial_data():
     """Loads ISS data at startup so the first user doesn't wait."""
     global ISS_SAT, LAST_TLE_FETCH
     print("📥 Loading ISS Data at startup...")
     try:
+        # Now this works because stations_url is already defined!
         stations = load.tle_file(stations_url, reload=True)
         ISS_SAT = stations[0]
         LAST_TLE_FETCH = datetime.now()
@@ -76,7 +81,7 @@ def load_initial_data():
     except Exception as e:
         print(f"⚠️ Error loading ISS data at startup: {e}")
 
-# Load immediately on start
+# 3. CALL THE FUNCTION LAST
 load_initial_data()
 
 # Celestrak TLE URL
