@@ -57,9 +57,27 @@ except Exception as e:
     print(f"CRITICAL ERROR: Could not load shapefiles. {e}")
     LAND_DATA = None
     OCEAN_DATA = None
-    STATE_DATA = None # <-- FIX: Was missing
+    STATE_DATA = None
     TZ_DATA = None
-# ----------------------------------------
+
+    # --- GLOBAL VARIABLES FOR TLE CACHING (THE FIX) ---
+ISS_SAT = None
+LAST_TLE_FETCH = None
+
+def load_initial_data():
+    """Loads ISS data at startup so the first user doesn't wait."""
+    global ISS_SAT, LAST_TLE_FETCH
+    print("📥 Loading ISS Data at startup...")
+    try:
+        stations = load.tle_file(stations_url, reload=True)
+        ISS_SAT = stations[0]
+        LAST_TLE_FETCH = datetime.now()
+        print("✅ ISS Data loaded successfully!")
+    except Exception as e:
+        print(f"⚠️ Error loading ISS data at startup: {e}")
+
+# Load immediately on start
+load_initial_data()
 
 # Celestrak TLE URL
 stations_url = 'https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle'
@@ -71,10 +89,29 @@ geolocator = Nominatim(user_agent="iss_tracker_api_v2")
 
 def get_latest_iss():
     """
-    Loads the latest TLE file from Celestrak and returns the ISS object.
+    SMART FUNCTION: Returns the ISS object from memory.
+    Refreshes data from Celestrak ONLY if data is older than 60 minutes.
+    This prevents the freezing and memory crashes.
     """
-    satellites = load.tle_file(stations_url, reload=True)
-    return satellites[0] 
+    global ISS_SAT, LAST_TLE_FETCH
+    
+    now = datetime.now()
+    
+    # Check if data is missing or old (> 1 hour)
+    if ISS_SAT is None or LAST_TLE_FETCH is None or (now - LAST_TLE_FETCH).total_seconds() > 3600:
+        print("🔄 TLE data is old. Fetching fresh data...")
+        try:
+            stations = load.tle_file(stations_url, reload=True)
+            ISS_SAT = stations[0]
+            LAST_TLE_FETCH = now
+            print("✅ TLE Refreshed.")
+        except Exception as e:
+            print(f"⚠️ Failed to refresh TLE: {e}")
+            # If refresh fails (e.g. Celestrak is down), keep using the old data so the app doesn't crash
+            if ISS_SAT is None:
+                raise e
+                
+    return ISS_SAT 
 
 def get_lat_lon(location_name):
     """Geocodes a location name to latitude and longitude (for /api/passes)."""
