@@ -10,7 +10,7 @@ from shapely.geometry import Point
 import pytz
 import math
 import io
-import os 
+import os
 
 # --- Get the absolute path of the directory where app.py is located ---
 # This is your "API Folder"
