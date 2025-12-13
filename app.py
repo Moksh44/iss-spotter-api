@@ -8,7 +8,7 @@ import traceback
 import geopandas as gpd
 from shapely.geometry import Point
 import pytz
-import os
+import o
 
 # --- Get the absolute path of the directory where app.py is located ---
 # This is your "API Folder"
