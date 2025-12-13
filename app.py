@@ -9,6 +9,7 @@ import geopandas as gpd
 from shapely.geometry import Point
 import pytz
 import os
+import psutil
 
 # --- Get the absolute path of the directory where app.py is located ---
 # This is your "API Folder"
@@ -318,7 +319,18 @@ def get_iss_passes():
     except Exception as e:
         print(f"An error occurred processing /api/passes:")
         print(traceback.format_exc())
-        return jsonify({"error": "An internal server error occurred."}), 500       
+        return jsonify({"error": "An internal server error occurred."}), 500
+
+@app.route("/api/health")
+def health_check():
+    process = psutil.Process(os.getpid())
+    memory_mb = process.memory_info().rss / 1024 / 1024
+    return jsonify({
+        "status": "online",
+        "memory_usage_mb": round(memory_mb, 2),
+        "memory_limit_mb": 512,
+        "free_space_mb": round(512 - memory_mb, 2)
+    })           
 
 # --- 4. Run the Application ---
 
