@@ -8,8 +8,6 @@ import traceback
 import geopandas as gpd
 from shapely.geometry import Point
 import pytz
-import math
-import io
 import os
 
 # --- Get the absolute path of the directory where app.py is located ---
@@ -61,47 +59,8 @@ except Exception as e:
     STATE_DATA = None
     TZ_DATA = None
 
-# --- GLOBAL VARIABLES FOR TLE CACHING ---
-ISS_SAT = None
-LAST_TLE_FETCH = None
-
 # 1. DEFINE THE URL FIRST (Moved Up)
 stations_url = 'https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle'
-
-# --- EMERGENCY DATA (Paste the 3 lines you copied inside the quotes) ---
-FALLBACK_TLE_DATA = """ISS (ZARYA)             
-1 25544U 98067A   25344.92875130  .00014434  00000+0  26509-3 0  9993
-2 25544  51.6309 151.4463 0003351 232.8214 127.2469 15.49489378542576"""
-# (Make sure you replace the numbers above with the fresh ones you copied!)
-
-def load_initial_data():
-    """Loads ISS data. Uses fallback if Celestrak is down/blocking."""
-    global ISS_SAT, LAST_TLE_FETCH
-    print("📥 Loading ISS Data...")
-    
-    # 1. Try to download from Web first
-    try:
-        stations = load.tle_file(stations_url, reload=True)
-        ISS_SAT = stations[0]
-        LAST_TLE_FETCH = datetime.now()
-        print("✅ ISS Data loaded from Web!")
-        return
-    except Exception as e:
-        print(f"⚠️ Web Download Failed (likely blocked): {e}")
-        print("🪂 Using Emergency Parachute...")
-
-    # 2. Use the Parachute (Hardcoded text)
-    try:
-        virtual_file = io.StringIO(FALLBACK_TLE_DATA)
-        stations = load.tle_file(virtual_file)
-        ISS_SAT = stations[0]
-        LAST_TLE_FETCH = datetime.now()
-        print("✅ ISS Data loaded from Fallback!")
-    except Exception as e:
-        print(f"❌ Critical Error: {e}")
-
-# Load immediately
-load_initial_data()
 
 # Geocoder setup (ONLY for /api/passes)
 geolocator = Nominatim(user_agent="iss_tracker_api_v2")
@@ -110,28 +69,10 @@ geolocator = Nominatim(user_agent="iss_tracker_api_v2")
 
 def get_latest_iss():
     """
-    SMART FUNCTION: Returns the ISS object from memory.
-    Refreshes data from Celestrak ONLY if data is older than 60 minutes.
+    Loads the latest TLE file from Celestrak and returns the ISS object.
     """
-    global ISS_SAT, LAST_TLE_FETCH
-    
-    now = datetime.now()
-    
-    # Check if data is missing or old (> 1 hour)
-    if ISS_SAT is None or LAST_TLE_FETCH is None or (now - LAST_TLE_FETCH).total_seconds() > 3600:
-        print("🔄 TLE data is old. Fetching fresh data...")
-        try:
-            stations = load.tle_file(stations_url, reload=True)
-            ISS_SAT = stations[0]
-            LAST_TLE_FETCH = now
-            print("✅ TLE Refreshed.")
-        except Exception as e:
-            print(f"⚠️ Failed to refresh TLE: {e}")
-            # If refresh fails (e.g. Celestrak is down), keep using the old data so the app doesn't crash
-            if ISS_SAT is None:
-                raise e
-                
-    return ISS_SAT 
+    satellites = load.tle_file(stations_url, reload=True)
+    return satellites[0]
 
 def get_lat_lon(location_name):
     """Geocodes a location name to latitude and longitude (for /api/passes)."""
@@ -377,59 +318,7 @@ def get_iss_passes():
     except Exception as e:
         print(f"An error occurred processing /api/passes:")
         print(traceback.format_exc())
-        return jsonify({"error": "An internal server error occurred."}), 500
-    
-@app.route("/api/telemetry")
-def get_telemetry():
-    """
-    Calculates real-time ISS telemetry (Position, Speed, Altitude, etc.)
-    Replaces the 'wheretheiss.at' API.
-    """
-    try:
-        iss = get_latest_iss()
-        t = ts.now()
-        
-        # 1. Calculate Position (Geocentric)
-        geocentric = iss.at(t)
-        subpoint = geocentric.subpoint()
-        
-        latitude = subpoint.latitude.degrees
-        longitude = subpoint.longitude.degrees
-        altitude_km = subpoint.elevation.km
-        
-        # 2. Calculate Velocity (Speed)
-        # Skyfield gives velocity in km/s as a vector (x, y, z)
-        velocity_vector = geocentric.velocity.km_per_s
-        # Speed = sqrt(x^2 + y^2 + z^2)
-        speed_km_s = math.sqrt(sum(v**2 for v in velocity_vector))
-        speed_km_h = speed_km_s * 3600
-        
-        # 3. Calculate Visibility (Daylight vs Eclipsed)
-        is_sunlit = iss.at(t).is_sunlit(eph)
-        visibility_status = "daylight" if is_sunlit else "eclipsed"
-        
-        # 4. Calculate Footprint (Horizon)
-        earth_radius_km = 6371.0
-        # Horizon angle (theta)
-        theta = math.acos(earth_radius_km / (earth_radius_km + altitude_km))
-        # Arc distance (radius of footprint on surface)
-        footprint_radius_km = theta * earth_radius_km
-        # Diameter (to match old API format approx)
-        footprint_diameter_km = footprint_radius_km * 2
-        
-        return jsonify({
-            "latitude": latitude,
-            "longitude": longitude,
-            "altitude": altitude_km,
-            "velocity": speed_km_h,
-            "visibility": visibility_status,
-            "footprint": footprint_diameter_km,
-            "timestamp": t.utc_datetime().timestamp()
-        })
-
-    except Exception as e:
-        print(f"Telemetry Error: {e}")
-        return jsonify({"error": "Could not calculate telemetry"}), 500        
+        return jsonify({"error": "An internal server error occurred."}), 500       
 
 # --- 4. Run the Application ---
 
