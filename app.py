@@ -387,12 +387,7 @@ def get_telemetry():
         velocity_km_h = speed_km_s * 3600
         
         # 5. Calculate Footprint (Visibility Diameter in km)
-        # Formula: Horizon distance based on altitude
-        # Earth Radius approx 6371 km
         R = 6371.0
-        # The angle to the horizon is arccos(R / (R + h))
-        # Great Circle Distance = R * angle
-        # Diameter = 2 * Distance
         if altitude_km > 0:
             angle = math.acos(R / (R + altitude_km))
             footprint_diameter_km = 2 * (R * angle)
@@ -405,7 +400,7 @@ def get_telemetry():
 
         # --- 7. ASTRONOMY CALCULATIONS (RA/Dec & Constellation) ---
         # Calculate Right Ascension (ra) and Declination (dec) from Earth's center
-        ra, dec, distance = geocentric.radec() 
+        ra, dec, distance = geocentric.radec()
         
         constellation_full_name = "Unknown"
         if lookup_constellation:
