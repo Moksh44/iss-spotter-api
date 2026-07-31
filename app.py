@@ -35,7 +35,7 @@ LAND_SHP_PATH = os.path.join(SHAPEFILES_DIR, "ne_10m_admin_0_countries.shp")
 OCEAN_SHP_PATH = os.path.join(SHAPEFILES_DIR, "ne_10m_geography_marine_polys.shp")
 TZ_SHP_PATH = os.path.join(TIMEZONES_DIR, "combined-shapefile-with-oceans.shp")
 
-# 1. Setup and Configuration
+# Setup and Configuration
 app = Flask(__name__)
 CORS(app, origins=[
     "http://127.0.0.1:5500",
@@ -432,4 +432,4 @@ def get_telemetry():
 
 # Run the Application
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=False)
