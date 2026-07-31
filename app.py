@@ -39,7 +39,7 @@ TZ_SHP_PATH = os.path.join(TIMEZONES_DIR, "combined-shapefile-with-oceans.shp")
 app = Flask(__name__)
 CORS(app, origins=[
     "http://127.0.0.1:5500",
-    "https://.tiiny.site",
+    "https://iss-tracker.tiiny.site",
 ]) 
 
 # Load Skyfield Data
