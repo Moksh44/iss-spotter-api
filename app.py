@@ -1,80 +1,81 @@
-# Import all the necessary libraries
+# Import libraries
 from flask import Flask, jsonify, request
+# flask - Flask Framework, jsonify - Converts Py to JSON
 from skyfield.api import load, wgs84, load_constellation_map, load_constellation_names
+# Skyfiled library, wgs84 - Formula Model
 from datetime import timedelta, datetime
+# datetime - dates and time
 from flask_cors import CORS
+# flask_cors - CORS Gateway framework
 from geopy.geocoders import Nominatim
+# geopy - library to access geocoding services, nominatim - openstreetMap's geocoding service
 import traceback
+# traceback - Library to handle exceptional fallbacks
 import geopandas as gpd
+# geopandas - manages geospatial data
 import numpy as np
+# numpy - manages vector, matrice and multi dimensional array calculations
 from shapely.geometry import Point
+# Engine to handle 2D geometry
 import pytz
+# Python time zone library to handle global and local time offsets
 import math
+# library to handle basic math operations
 import os
 
 
-# --- Get the absolute path of the directory where app.py is located ---
-# This is your "API Folder"
+# acess to local files
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# --- Define the absolute paths to your shapefiles ---
+# paths to shapefiles
 SHAPEFILES_DIR = os.path.join(BASE_DIR, "Shapefiles")
 TIMEZONES_DIR = os.path.join(SHAPEFILES_DIR, "Timezones")
-
-# Paths to the specific files
 STATE_SHP_PATH = os.path.join(SHAPEFILES_DIR, "ne_10m_admin_1_states_provinces.shp")
 LAND_SHP_PATH = os.path.join(SHAPEFILES_DIR, "ne_10m_admin_0_countries.shp")
 OCEAN_SHP_PATH = os.path.join(SHAPEFILES_DIR, "ne_10m_geography_marine_polys.shp")
 TZ_SHP_PATH = os.path.join(TIMEZONES_DIR, "combined-shapefile-with-oceans.shp")
 
-# --- 1. Setup and Configuration ---
-
+# 1. Setup and Configuration
 app = Flask(__name__)
 CORS(app, origins=[
     "http://127.0.0.1:5500",
     "https://isstracker.tiiny.site",
 ]) 
 
-# --- Load Skyfield Data ---
+# Load Skyfield Data
 ts = load.timescale()
 eph = load('de421.bsp')
 sun = eph['Sun']
 earth = eph['Earth']
 
-# 1. DEFINE THE URL FIRST (Moved Up)
+# DEFINE THE URL
 stations_url = 'https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle'
 
-# checks for a local file first, downloads if missing/expired
-# --- Global variables for caching ---
+# Global variables for caching
 cached_iss = None
 last_tle_update = None
 
+# Fetch and cache the orbital Data
 def get_iss():
     global cached_iss, last_tle_update
     now = datetime.now()
 
-    # Update if we have no data, or if the data is older than 12 hours
     if cached_iss is None or last_tle_update is None or (now - last_tle_update).total_seconds() > 43200:
         try:
             tles = load.tle_file(stations_url, reload=True)
             if not tles:
                 raise RuntimeError("TLE file downloaded but contained no satellites.")
-
-            # Safely find the ISS by exact name, fallback to [0]
             by_name = {tle.name: tle for tle in tles}
             cached_iss = by_name.get('ISS (ZARYA)', tles[0]) 
             last_tle_update = now
         except Exception as e:
             print(f"Failed to fetch TLE: {e}")
             if cached_iss is None:
-                raise # Cannot run if the very first download fails
+                raise
 
     return cached_iss
-
 try:
-    # This downloads the official IAU constellation boundaries
     lookup_constellation = load_constellation_map()
-    # This downloads the dictionary of full names (e.g. "Ori" -> "Orion")
     constellation_names_dict = dict(load_constellation_names())
     print("Constellation Data Loaded.")
 except Exception as e:
@@ -82,15 +83,15 @@ except Exception as e:
     lookup_constellation = None
     constellation_names_dict = {}
 
-# --- Load all 3 High-Resolution (10m) Geospatial Data Files ---
+# Load all 3 High-Resolution Geospatial Data Files
 try:
-    # 1. States/Provinces (Most Detailed Land)
+    # 1. States/Provinces
     STATE_DATA = gpd.read_file(STATE_SHP_PATH) 
-    # 2. Countries (Broad Land Fallback)
+    # 2. Countries
     LAND_DATA = gpd.read_file(LAND_SHP_PATH)
-    # 3. Oceans (Water)
+    # 3. Oceans
     OCEAN_DATA = gpd.read_file(OCEAN_SHP_PATH)
-    # 4. Timezones (Labels)
+    # 4. Timezones
     TZ_DATA = gpd.read_file(TZ_SHP_PATH)
 
 except Exception as e:
@@ -100,11 +101,10 @@ except Exception as e:
     STATE_DATA = None
     TZ_DATA = None
 
-# Geocoder setup (ONLY for /api/passes)
+# Geocoder setup
 geolocator = Nominatim(user_agent="iss_tracker_api_v2")
 
-# --- 2. Helper Functions (Unchanged) ---
-
+# Helper Function for Geocoder
 def get_lat_lon(location_name):
     """Geocodes a location name to latitude, longitude, and a display label."""
     if not location_name or len(location_name.strip()) < 3:
@@ -128,6 +128,7 @@ def get_lat_lon(location_name):
         print(f"Geocoder exception: {e}")
     return None, None, None
 
+#Function to find visibility sighitings
 def is_pass_visible(iss, observer_location, start_time, end_time):
     """
     Checks if a pass is visible at any point between start and end time.
@@ -147,35 +148,32 @@ def is_pass_visible(iss, observer_location, start_time, end_time):
         iteration += 1
     return False
 
+# Function to calculate timezone
 def get_timezone_name(lat, lon):
     """
     Finds the Timezone ID for a specific Lat/Lon using the loaded TZ_DATA shapefile.
     """
     if TZ_DATA is None:
-        return "Data Error" # Fallback if shapefiles failed
-
+        return "Data Error"
     try:
         p = Point(lon, lat)
-        # Check which timezone polygon contains this point
         matches = TZ_DATA[TZ_DATA.geometry.contains(p)]
         if not matches.empty:
             return matches.iloc[0].get('tzid') or "UTC"
     except Exception as e:
         print(f"Timezone lookup error: {e}")
-    
-    return "UTC" # Default fallback
+    return "UTC"
 
-# --- 3. API Routes ---
-
+# API Routes
 @app.route("/")
 def home():
-    """The home route to confirm the API is running."""
+    """The home route to confirm that API is running."""
     return jsonify({
         "status": "online",
         "message": "The ISS Spotter API server is working!"
     })
 
-
+# API route for location
 @app.route("/api/location")
 def get_iss_location():
     """
@@ -192,7 +190,7 @@ def get_iss_location():
     except (ValueError, TypeError):
         return jsonify({"error": "Invalid or missing latitude/longitude."}), 400
 
-# --- 1. REBUILT TIMEZONE LOGIC (USING GEOPANDAS) ---
+    # REBUILT TIMEZONE LOGIC (USING GEOPANDAS)
     tz_name = get_timezone_name(latitude, longitude)
     local_time_str = "N/A"
 
@@ -204,19 +202,14 @@ def get_iss_location():
             local_time_str = now_in_tz.strftime('%H:%M:%S')
         except Exception as e:
             print(f"Timezone conversion failed: {e}")
-
     if tz_name =="UTC":
         tz_name = "N/A (Ocean)"
     elif tz_name == "Data Error":
         tz_name = "UTC (Fallback)"
-    # --- END REBUILT TIMEZONE LOGIC ---
 
-
-    # --- 2. GEOLOCATION LOGIC (100% LOCAL) ---
+    # Geolocation Time Zone Check
     try:
-        # Check States/Provinces First (Most Specific Land)
         if STATE_DATA is not None:
-            # FIX: Check against the original geometry, not a buffer
             matches = STATE_DATA[STATE_DATA.geometry.contains(iss_point)]
             if not matches.empty:
                 state_name = matches.iloc[0].get('name')
@@ -227,13 +220,12 @@ def get_iss_location():
                     "timezone": tz_name,
                     "local_time": local_time_str
                 })
-
-        # Check Countries Second
+            
+        # Check Countries
         if LAND_DATA is not None:
-            # FIX: Check against the original geometry
             matches = LAND_DATA[LAND_DATA.geometry.contains(iss_point)]
             if not matches.empty:
-                country_name = matches.iloc[0].get('ADMIN') # FIX: Correct column name
+                country_name = matches.iloc[0].get('ADMIN')
                 return jsonify({
                     "country": country_name,
                     "nearest": country_name,
@@ -241,7 +233,7 @@ def get_iss_location():
                     "local_time": local_time_str
                 })
         
-        # Check Oceans Third
+        # Check Oceans
         if OCEAN_DATA is not None:
             matches = OCEAN_DATA[OCEAN_DATA.geometry.contains(iss_point)]
             if not matches.empty:
@@ -275,9 +267,9 @@ def get_iss_location():
         return jsonify({"error": "An internal server error occurred."}), 500
 
 
+# API route for sighitings
 @app.route("/api/passes")
 def get_iss_passes():
-    # --- (Your existing /api/passes function) ---
     lat_str = request.args.get('lat')
     lon_str = request.args.get('lon')
     location_name = request.args.get('location')
@@ -315,11 +307,11 @@ def get_iss_passes():
         rise_time, max_time, set_time = None, None, None
 
         for t, event in zip(times, events):
-            if event == 0:  # Rise
+            if event == 0:
                 rise_time = t
-            elif event == 1: # Culminate (max elevation)
+            elif event == 1:
                 max_time = t
-            elif event == 2: # Set
+            elif event == 2:
                 set_time = t
 
             if rise_time is not None and max_time is not None and set_time is not None:
@@ -360,6 +352,7 @@ def get_iss_passes():
         print(traceback.format_exc())
         return jsonify({"error": "An internal server error occurred."}), 500
 
+# API Route for Telemetry Data
 @app.route("/api/telemetry")
 def get_telemetry():
     """
@@ -367,26 +360,25 @@ def get_telemetry():
     Replaces the external 'wheretheiss.at' API.
     """
     try:
-        # 1. Get the ISS object
+        # Get the ISS object
         iss = get_iss()
         
-        # 2. Calculate position for "NOW"
+        # Calculate Live position
         t = ts.now()
         geocentric = iss.at(t)
         subpoint = wgs84.subpoint(geocentric)
         
-        # 3. Extract Core Data
+        # Extract Core Data
         latitude = subpoint.latitude.degrees
         longitude = subpoint.longitude.degrees
         altitude_km = subpoint.elevation.km
         
-        # 4. Calculate Velocity (Speed)
-        # Skyfield gives velocity in km/s. We convert to km/h.
+        # Calculate Velocity (Speed)
         velocity_vector = geocentric.velocity.km_per_s
         speed_km_s = float(np.linalg.norm(velocity_vector))
         velocity_km_h = speed_km_s * 3600
         
-        # 5. Calculate Footprint (Visibility Diameter in km)
+        # Calculate Footprint (Visibility Diameter in km)
         R = 6371.0
         if altitude_km > 0:
             angle = math.acos(R / (R + altitude_km))
@@ -394,31 +386,26 @@ def get_telemetry():
         else:
             footprint_diameter_km = 0
 
-        # 6. Solar Visibility (Day/Night)
+        # Solar Visibility (Day/Night)
         is_sunlit = iss.at(t).is_sunlit(eph)
         visibility_status = "Visible" if is_sunlit else "Invisible"
 
-        # --- 7. ASTRONOMY CALCULATIONS (RA/Dec & Constellation) ---
-        # Calculate Right Ascension (ra) and Declination (dec) from Earth's center
+        # ASTRONOMY CALCULATIONS (RA/Dec & Constellation)
         ra, dec, distance = geocentric.radec()
         
         constellation_full_name = "Unknown"
         if lookup_constellation:
-            # Get the abbreviation from the star map
             abbrev = lookup_constellation(geocentric)
-            # Convert "Ori" -> "Orion" using our dictionary
             constellation_full_name = constellation_names_dict.get(abbrev, abbrev)
         
         ra_hours = ra.hours
         dec_degrees = dec.degrees
 
-        # --- 8. LIVE ORBIT PERIOD CALCULATION ---
-        # "no_kozai" is the satellite's mean motion in radians per minute
-        # Formula: Period = 2 * PI / Mean Motion
+        # LIVE ORBIT PERIOD CALCULATION
         mean_motion_rad_min = iss.model.no_kozai
         orbit_period_mins = (2 * math.pi) / mean_motion_rad_min
         
-        # Calculate orbits per day (1440 minutes in a day)
+        # Calculate orbits per day
         orbits_per_day = 1440 / orbit_period_mins
 
         return jsonify({
@@ -443,7 +430,6 @@ def get_telemetry():
         print(f"Telemetry Error: {traceback.format_exc()}")
         return jsonify({"error": "Failed to calculate telemetry"}), 500         
 
-# --- 4. Run the Application ---
-
+# Run the Application
 if __name__ == '__main__':
     app.run(debug=True)
