@@ -1,5 +1,5 @@
-# Import libraries
-from flask import Flask, jsonify, request
+# Import Libraries
+from flask import Flask, jsonify, request, abort
 # flask - Flask Framework, jsonify - Converts Py to JSON
 from skyfield.api import load, wgs84, load_constellation_map, load_constellation_names
 # Skyfiled library, wgs84 - Formula Model
@@ -21,7 +21,7 @@ import pytz
 # Python time zone library to handle global and local time offsets
 import math
 # library to handle basic math operations
-import os
+import os, requests
 
 
 # acess to local files
@@ -37,10 +37,16 @@ TZ_SHP_PATH = os.path.join(TIMEZONES_DIR, "combined-shapefile-with-oceans.shp")
 
 # Setup and Configuration
 app = Flask(__name__)
-CORS(app, origins=[
+ALLOWED_ORIGINS=[
     "http://127.0.0.1:5500",
     "https://iss-tracker.tiiny.site",
-]) 
+]
+
+@app.before_request
+def enforce_cors():
+    origin = request.headers.get('Origin')
+    if origin and origin not in ALLOWED_ORIGINS:
+        abort(403)
 
 # Load Skyfield Data
 ts = load.timescale()
@@ -49,7 +55,7 @@ sun = eph['Sun']
 earth = eph['Earth']
 
 # DEFINE THE URL
-stations_url = 'https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle'
+stations_url = 'https://api.wheretheiss.at/v1/satellites/25544/tles?format=text'
 
 # Global variables for caching
 cached_iss = None
@@ -62,7 +68,15 @@ def get_iss():
 
     if cached_iss is None or last_tle_update is None or (now - last_tle_update).total_seconds() > 43200:
         try:
-            tles = load.tle_file(stations_url, reload=True)
+
+            headers = {'User-Agent': 'ISS-Tracker-App/1.0'}
+            response = requests.get(stations_url, headers=headers, timeout=10)
+            response.raise_for_status()
+
+            tle_path = os.path.join(BASE_DIR, "stations.txt")
+            with open(tle_path, "w", encoding="utf-8") as f:
+                f.write(response.text)
+            tles = load.tle_file(tle_path)
             if not tles:
                 raise RuntimeError("TLE file downloaded but contained no satellites.")
             by_name = {tle.name: tle for tle in tles}
