@@ -1,4 +1,4 @@
-# Import Libraries
+# Import Libraries 
 from flask import Flask, jsonify, request, abort
 # flask - Flask Framework, jsonify - Converts Py to JSON
 from skyfield.api import load, wgs84, load_constellation_map, load_constellation_names
@@ -42,7 +42,11 @@ ALLOWED_ORIGINS=[
     "https://iss-tracker.tiiny.site",
 ]
 
-
+@app.before_request
+def enforce_cors():
+    origin = request.headers.get('Origin')
+    if origin and origin not in ALLOWED_ORIGINS:
+        abort(403)
 
 # Load Skyfield Data
 ts = load.timescale()
