@@ -1,13 +1,3 @@
----
-title: ISS Tracker API
-emoji: 🚀
-colorFrom: blue
-colorTo: gray
-sdk: docker
-pinned: false
-app_port: 7860
----
-
 # ISS Spotter API
 
 Flask backend for the [ISS Tracker](https://github.com/Moksh44/ISS-Tracker). It calculates live International Space Station telemetry, resolves the ISS's current geographic location from local shapefiles, and predicts visible passes for a requested location.
